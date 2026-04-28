@@ -4,6 +4,7 @@ Este repositório contém a entrega da **Parte 1** da disciplina, focada em UI, 
 
 Objetivo do Projeto
 O "Souza Transporte" surge da necessidade de modernizar e auditar o fluxo logístico no transporte de amostras biológicas. Atualmente baseado em registros manuais (papel), o processo enfrenta desafios críticos como a falta de integridade nos horários informados, morosidade na consolidação de dados para planilhas e a dificuldade em identificar gargalos operacionais.
+
 *O app está sendo desenvolvido para uma aplicação real*
 
 O sistema visa:
