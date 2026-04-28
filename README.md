@@ -15,7 +15,7 @@ O sistema visa:
 *   Otimização Financeira: Proporcionar uma base de dados confiável para o pagamento de prêmios por agilidade, garantindo que a bonificação seja aplicada de forma justa e baseada em dados reais de produtividade.
 
 ###  Requisitos Implementados
-*   **Objetivo do Aplicativo (0,5):** Sistema focado em logística de saúde pública e Otimização Financeira e de performance.
+*   **Objetivo do Aplicativo (0,5):** Sistema focado em logística de saúde pública, otimização Financeira e de performance.
 *   **Uso de Formulários (1,5):** Implementação de `TextFormField` com validadores para entrada manual de dados.
 *   **Validações e Feedback (1,0):** Tratamento de erros de GPS, leitura de QR Code inválido e validação de campos vazios.
 *   **Estrutura e Padronização (2,0):** Arquitetura **MVC** (Models, Views, Controllers/Services).
