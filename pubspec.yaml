@@ -1,0 +1,43 @@
+name: s_transporte
+description: "Projeto MedExpress com localização, scanner e exportação múltipla."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.3
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # Suporte para o calendário em português e localização
+  flutter_localizations:
+    sdk: flutter
+  
+  # QR Code Scanner
+  mobile_scanner: ^3.5.6
+  
+  # Localização e Mapas
+  geolocator: ^10.1.0
+  google_maps_flutter: ^2.5.3
+  
+  # Persistência e Datas (Versão atualizada para resolver o erro)
+  shared_preferences: ^2.2.2
+  intl: ^0.20.2
+  
+  # Comunicação e Exportação
+  http: ^1.1.0
+  share_plus: ^7.2.1
+  path_provider: ^2.1.2
+  excel: ^4.0.6
+  csv: ^6.0.0
+
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
