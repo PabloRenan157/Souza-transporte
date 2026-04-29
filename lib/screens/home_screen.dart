@@ -19,7 +19,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          // Fundo com gradiente moderno para identidade visual do MedExpress
+          // Fundo com gradiente moderno para identidade visual
           Container(
             decoration: const BoxDecoration(
               gradient: LinearGradient(
