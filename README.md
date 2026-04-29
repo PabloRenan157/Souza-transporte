@@ -40,7 +40,7 @@ Para garantir a organização e facilidade de manutenção pedida na avaliação
 
 ---
 
-##  Como Executar
+##  Como Executar no Desktop
 
 1. **Pré-requisitos:** Flutter SDK instalado e configurado.
 2. **Dependências:** Execute `flutter pub get` na raiz do projeto.
@@ -48,7 +48,21 @@ Para garantir a organização e facilidade de manutenção pedida na avaliação
    ```bash
    flutter run
 
+##  Como Executar no Android
+
+Passo 1: Download do Arquivo
+Acesse o link do repositório no GitHub.
+No lado direito, clique em Releases.
+Procure pela versão v1.0.0 e, na seção Assets, clique no arquivo s_transporte.apk para baixar.
+
+Passo 2: Transferência e Permissões
+Envie o arquivo para o smartphone Android (via WhatsApp, Google Drive ou cabo USB).
+Ao abrir o arquivo no celular, o Android exibirá um alerta de segurança por ser um app de "fonte desconhecida" (fora da Play Store).
+Clique em Configurações na mensagem de alerta e ative a opção "Permitir desta fonte".
+Volte e clique em Instalar.
+
 ## Como Usar 
+
 1. Tela de Login (Home)
 É o ponto de entrada. Como o foco da Parte 1 é a identificação e tratamento de variáveis, ela serve para coletar o nome do operador.
 Ações:
