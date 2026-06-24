@@ -1,11 +1,11 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:share_plus/share_plus.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:provider/provider.dart';
 import '../models/transporte_log.dart';
-import '../services/log_service.dart';
+import '../providers/log_provider.dart';
 
+/// Ecrã de Faturamento Mensal e Histórico de Atividades do Motorista.
+/// Permite visualizar ganhos acumulados, ciclos de faturamento, sincronizar dados e acompanhar tempos de permanência.
 class RelatorioScreen extends StatefulWidget {
   const RelatorioScreen({super.key});
 
@@ -14,152 +14,169 @@ class RelatorioScreen extends StatefulWidget {
 }
 
 class _RelatorioScreenState extends State<RelatorioScreen> {
-  List<TransporteLog> _logsDoDia = [];
-  DateTime _dataSelecionada = DateTime.now();
-  bool _carregando = true;
+  DateTime _dataFaturamentoRef = DateTime.now();
+  bool _sincronizando = false;
 
   @override
   void initState() {
     super.initState();
-    _carregarDados();
-  }
-
-  Future<void> _carregarDados() async {
-    setState(() => _carregando = true);
-    // Busca apenas os logs da data selecionada no calendário
-    final dados = await LogService.obterLogsPorData(_dataSelecionada);
-    setState(() {
-      _logsDoDia = dados;
-      _carregando = false;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Provider.of<LogProvider>(context, listen: false).carregarHistoricoLocal();
     });
   }
 
-  Future<void> _selecionarData(BuildContext context) async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: _dataSelecionada,
-      firstDate: DateTime(2024),
-      lastDate: DateTime.now(),
-      locale: const Locale('pt', 'BR'),
-    );
-    if (picked != null) {
-      setState(() => _dataSelecionada = picked);
-      _carregarDados();
+  /// Gera a formatação textual do ciclo de faturamento (do dia 20 do mês anterior ao dia 19 deste mês)
+  String _obterIntervaloFaturamentoFormatado() {
+    DateTime inicio;
+    DateTime fim;
+
+    if (_dataFaturamentoRef.day >= 20) {
+      inicio = DateTime(_dataFaturamentoRef.year, _dataFaturamentoRef.month, 20);
+      fim = DateTime(_dataFaturamentoRef.year, _dataFaturamentoRef.month + 1, 19);
+    } else {
+      inicio = DateTime(_dataFaturamentoRef.year, _dataFaturamentoRef.month - 1, 20);
+      fim = DateTime(_dataFaturamentoRef.year, _dataFaturamentoRef.month, 19);
     }
+
+    final formatador = DateFormat('dd/MM/yyyy');
+    return '${formatador.format(inicio)} à ${formatador.format(fim)}';
   }
 
-  /// Calcula o tempo ocioso: Saída da entrega ATUAL menos Chegada da entrega ANTERIOR
-  Duration _calcularTempoOcioso(int index) {
-    if (index == 0) return Duration.zero;
-    final atual = _logsDoDia[index];
-    final anterior = _logsDoDia[index - 1];
+  /// Força o envio em lote das corridas offline guardadas localmente para a nuvem
+  Future<void> _sincronizarFilaPendentes() async {
+    setState(() => _sincronizando = true);
     
-    // Se o motorista saiu ANTES de ter chegado na anterior (erro de log), retorna zero
-    if (atual.horaSaida.isBefore(anterior.horaChegada)) return Duration.zero;
-    
-    return atual.horaSaida.difference(anterior.horaChegada);
-  }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('A enviar dados para a nuvem do Supabase...'),
+        backgroundColor: Color(0xFF00ACC1),
+        duration: Duration(seconds: 1),
+      ),
+    );
 
-  /// Restaura a funcionalidade de exportação com escolha de formato
-  Future<void> _exportar(String formato) async {
     try {
-      final dir = await getTemporaryDirectory();
-      String extensao = formato;
-      String fileName = "Relatorio_${DateFormat('dd_MM_yy').format(_dataSelecionada)}.$extensao";
-      String path = "${dir.path}/$fileName";
-      String finalPath = "";
-
-      if (formato == 'xlsx') {
-        finalPath = await LogService.gerarExcel(_logsDoDia, path);
-      } else if (formato == 'csv') {
-        finalPath = await LogService.gerarCSV(_logsDoDia, path);
-      } else {
-        // Formato TXT
-        String conteudo = await LogService.gerarRelatorioTexto(_logsDoDia, "dia");
-        final file = File(path);
-        await file.writeAsString(conteudo);
-        finalPath = file.path;
+      final logProvider = Provider.of<LogProvider>(context, listen: false);
+      await logProvider.tentarSincronizarFilaPendentes();
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Sincronização concluída com sucesso!'),
+            backgroundColor: Colors.green,
+          ),
+        );
       }
-
-      await Share.shareXFiles([XFile(finalPath)], text: 'Souza transporte - Relatórios');
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao exportar: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Falha ao conectar com o servidor: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
+    } finally {
+      if (mounted) setState(() => _sincronizando = false);
     }
-  }
-
-  /// Abre o menu de escolha de formato de arquivo
-  void _abrirMenuExportacao() {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (context) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Padding(
-            padding: EdgeInsets.all(20),
-            child: Text('Escolha o formato de exportação', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-          ),
-          ListTile(
-            leading: const Icon(Icons.table_chart, color: Colors.green),
-            title: const Text('Excel (.xlsx)'),
-            onTap: () { Navigator.pop(context); _exportar('xlsx'); },
-          ),
-          ListTile(
-            leading: const Icon(Icons.grid_on, color: Colors.blue),
-            title: const Text('CSV (.csv)'),
-            onTap: () { Navigator.pop(context); _exportar('csv'); },
-          ),
-          ListTile(
-            leading: const Icon(Icons.description, color: Colors.orange),
-            title: const Text('Texto Simples (.txt)'),
-            onTap: () { Navigator.pop(context); _exportar('txt'); },
-          ),
-          const SizedBox(height: 20),
-        ],
-      ),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final formatadorDia = DateFormat('EEEE, dd/MM/yyyy', 'pt_BR');
-    final formatadorHora = DateFormat('HH:mm');
+    final logProvider = Provider.of<LogProvider>(context);
+    final corridasNoPeriodo = logProvider.obterLogsNoPeriodoFaturamento(_dataFaturamentoRef);
+    final double faturamentoViagens = corridasNoPeriodo.fold<double>(0.0, (soma, c) => soma + c.valorCorrida);
+
+    // Conta quantos logs no histórico pessoal local ainda não estão no Supabase
+    final int logsPendentes = logProvider.historicoPessoal.where((l) => !l.sincronizado).length;
 
     return Scaffold(
-      backgroundColor: Colors.grey[100],
+      backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text('Relatórios'),
+        title: const Text('Faturamento Mensal'),
         backgroundColor: const Color(0xFF00ACC1),
+        foregroundColor: Colors.white,
+        automaticallyImplyLeading: false, 
         actions: [
+          // Botão manual de Sincronização na barra superior
           IconButton(
-            icon: const Icon(Icons.calendar_today),
-            onPressed: () => _selecionarData(context),
+            icon: _sincronizando 
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                : const Icon(Icons.cloud_upload_rounded),
+            tooltip: "Sincronizar com o Banco",
+            onPressed: _sincronizando ? null : _sincronizarFilaPendentes,
           ),
           IconButton(
-            icon: const Icon(Icons.file_download),
-            onPressed: () => _abrirMenuExportacao(),
+            icon: const Icon(Icons.calendar_month_rounded),
+            tooltip: "Mudar Mês",
+            onPressed: () async {
+              final DateTime? selecionada = await showDatePicker(
+                context: context,
+                initialDate: _dataFaturamentoRef,
+                firstDate: DateTime(2024),
+                lastDate: DateTime.now(),
+              );
+              if (selecionada != null) {
+                setState(() {
+                  _dataFaturamentoRef = selecionada;
+                });
+              }
+            },
           )
         ],
       ),
-      body: _carregando 
-          ? const Center(child: CircularProgressIndicator())
+      body: logProvider.carregando
+          ? const Center(child: CircularProgressIndicator(color: Color(0xFF00ACC1)))
           : Column(
               children: [
-                _buildResumoHeader(formatadorDia),
+                // --- SEÇÃO DINÂMICA: Alerta de Viagens Pendentes de Sincronização ---
+                if (logsPendentes > 0) ...[
+                  Container(
+                    width: double.infinity,
+                    color: Colors.amber.shade100,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    child: Row(
+                      children: [
+                        Icon(Icons.cloud_off_rounded, color: Colors.amber.shade900, size: 20),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'Tens $logsPendentes viagem(ns) offline aguardando sincronização.',
+                            style: TextStyle(
+                              color: Colors.amber.shade900, 
+                              fontWeight: FontWeight.bold, 
+                              fontSize: 12
+                            ),
+                          ),
+                        ),
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.amber.shade800,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                            minimumSize: const Size(60, 30),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          onPressed: _sincronizando ? null : _sincronizarFilaPendentes,
+                          child: const Text('ENVIAR', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+
+                _buildCardPainelFaturamento(
+                  faturamentoViagens,
+                  corridasNoPeriodo.length,
+                ),
                 Expanded(
-                  child: _logsDoDia.isEmpty
-                      ? _buildEmptyState()
+                  child: corridasNoPeriodo.isEmpty
+                      ? const Center(child: Text('Nenhuma atividade neste ciclo de faturamento.'))
                       : ListView.builder(
                           padding: const EdgeInsets.all(12),
-                          itemCount: _logsDoDia.length,
+                          itemCount: corridasNoPeriodo.length,
                           itemBuilder: (context, index) {
-                            final log = _logsDoDia[index];
-                            final tempoOcioso = _calcularTempoOcioso(index);
-                            return _buildTimelineItem(log, tempoOcioso, index == 0, formatadorHora);
+                            final log = corridasNoPeriodo[index];
+                            return _buildTimelineItem(log);
                           },
                         ),
                 ),
@@ -168,89 +185,163 @@ class _RelatorioScreenState extends State<RelatorioScreen> {
     );
   }
 
-  Widget _buildResumoHeader(DateFormat df) {
+  Widget _buildCardPainelFaturamento(double total, int qtd) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
-      color: Colors.white,
+      decoration: const BoxDecoration(
+        color: Colors.white, 
+        boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4)],
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(df.format(_dataSelecionada).toUpperCase(), 
-               style: const TextStyle(fontSize: 12, color: Colors.cyan, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 4),
-          Text('${_logsDoDia.length} Coletas Realizadas', 
-               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTimelineItem(TransporteLog log, Duration ocioso, bool isPrimeiro, DateFormat hf) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (!isPrimeiro) _buildIdleIndicator(ocioso, log.localInicio),
-        Card(
-          elevation: 2,
-          margin: const EdgeInsets.symmetric(vertical: 4),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-          child: ExpansionTile(
-            leading: const CircleAvatar(
-              backgroundColor: Color(0xFF00ACC1),
-              child: Icon(Icons.local_shipping, color: Colors.white, size: 20),
-            ),
-            title: Text('${log.localInicio} ➔ ${log.destino}', 
-                        style: const TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Text('Tempo: ${log.tempoTrajeto.inMinutes} min | ${hf.format(log.horaSaida)} - ${hf.format(log.horaChegada)}'),
-            childrenPadding: const EdgeInsets.all(16),
+          const Text('PERÍODO DE FATURAMENTO MENSAL', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.cyan)),
+          Text(_obterIntervaloFaturamentoFormatado(), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+          const Divider(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _infoRow("Motorista:", log.nomeMotorista),
-              _infoRow("ID Amostra:", log.id),
-              if(log.observacao.isNotEmpty) _infoRow("Obs:", log.observacao),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('$qtd Viagens', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                  const Text('Total Realizado', style: TextStyle(color: Colors.grey, fontSize: 11)),
+                ],
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text('R\$ ${total.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: Colors.teal)),
+                  const Text('Faturamento Total', style: TextStyle(color: Colors.grey, fontSize: 11)),
+                ],
+              )
             ],
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
-  Widget _buildIdleIndicator(Duration ocioso, String local) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 35, top: 10, bottom: 10),
-      child: Row(
-        children: [
-          Container(width: 2, height: 30, color: Colors.orange.shade300),
-          const SizedBox(width: 15),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('OCIOSO EM $local', 
-                   style: const TextStyle(fontSize: 10, color: Colors.orange, fontWeight: FontWeight.bold)),
-              Text('${ocioso.inMinutes} min parado aguardando check-out', 
-                   style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+  Widget _buildTimelineItem(TransporteLog log) {
+    // Calcula a diferença exata de tempo na paragem intermédia caso exista check-in e check-out
+    int tempoPermanenciaMinutos = 0;
+    if (log.horaCheckInIntermediario != null && log.horaCheckOutIntermediario != null) {
+      tempoPermanenciaMinutos = log.horaCheckOutIntermediario!.difference(log.horaCheckInIntermediario!).inMinutes;
+    }
+
+    return Card(
+      elevation: 0.5,
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  log.equipeLinha,
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF263238)),
+                ),
+                Row(
+                  children: [
+                    // INDICADOR DE STATUS DA NUVEM (Sincronizado = Verde, Pendente/Offline = Cinza)
+                    Icon(
+                      log.sincronizado ? Icons.cloud_done_rounded : Icons.cloud_off_rounded,
+                      size: 18,
+                      color: log.sincronizado ? Colors.green : Colors.grey,
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(color: Colors.teal.shade50, borderRadius: BorderRadius.circular(10)),
+                      child: Text(
+                        'R\$ ${log.valorCorrida.toStringAsFixed(2)}',
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.teal),
+                      ),
+                    ),
+                  ],
+                )
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Rota: ${log.localInicio} ➔ ${log.destino}',
+              style: const TextStyle(fontSize: 11, color: Colors.blueGrey),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Duração Total: ${log.tempoTrajeto.inMinutes} min (Saída: ${DateFormat('HH:mm').format(log.horaSaida)} | Chegada: ${DateFormat('HH:mm').format(log.horaChegada)})',
+              style: const TextStyle(fontSize: 11, color: Colors.black54),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Amostras (${log.idAmostras.length}): ${log.idAmostras.join(', ')}',
+              style: const TextStyle(fontSize: 11, color: Colors.grey),
+            ),
+            
+            // --- DETALHAMENTO DE TEMPO NO LOCAL INTERMÉDIO (Check-In Duplo) ---
+            if (log.horaCheckInIntermediario != null) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50, 
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.shade100),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.timer_outlined, color: Colors.orange, size: 15),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'Parado em: ${log.localIntermediario ?? "Upa Santana"}',
+                            style: TextStyle(fontSize: 11, color: Colors.orange.shade900, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Entrada: ${DateFormat('HH:mm:ss').format(log.horaCheckInIntermediario!)}',
+                          style: const TextStyle(fontSize: 10, color: Colors.black87),
+                        ),
+                        Text(
+                          log.horaCheckOutIntermediario != null 
+                              ? 'Saída: ${DateFormat('HH:mm:ss').format(log.horaCheckOutIntermediario!)}'
+                              : 'Saída: Não registada',
+                          style: const TextStyle(fontSize: 10, color: Colors.black87),
+                        ),
+                      ],
+                    ),
+                    if (log.horaCheckOutIntermediario != null) ...[
+                      const Divider(height: 12, color: Colors.orange),
+                      Text(
+                        'Tempo parado no local: $tempoPermanenciaMinutos min',
+                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.orange.shade900),
+                      ),
+                    ],
+                  ],
+                ),
+              )
             ],
-          )
-        ],
+            if (log.observacao.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text('Obs: ${log.observacao}', style: const TextStyle(fontSize: 10, fontStyle: FontStyle.italic, color: Colors.grey))
+            ]
+          ],
+        ),
       ),
     );
   }
-
-  Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.event_busy, size: 60, color: Colors.grey.shade300),
-          const SizedBox(height: 10),
-          const Text('Nenhuma atividade para esta data.'),
-        ],
-      ),
-    );
-  }
-
-  Widget _infoRow(String l, String v) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 2),
-    child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(l, style: const TextStyle(color: Colors.grey)), Text(v, style: const TextStyle(fontWeight: FontWeight.bold))]),
-  );
 }

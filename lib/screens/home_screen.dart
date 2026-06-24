@@ -19,7 +19,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          // Fundo com gradiente moderno para identidade visual
+          // Fundo com gradiente
           Container(
             decoration: const BoxDecoration(
               gradient: LinearGradient(
@@ -42,7 +42,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     style: TextStyle(color: Colors.white70, fontSize: 18),
                   ),
                   const Text(
-                    'Souza transporte',
+                    'Souza transportes',
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 36,

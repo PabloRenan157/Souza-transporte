@@ -1,10 +1,10 @@
-import 'package:flutter/foundation.dart'; // Adicionado para definir e corrigir o erro do método debugPrint
+import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'dart:math';
-import '../config/env.dart'; // Importação segura do ficheiro de chaves de ambiente
+import '../config/env.dart';
 
 class LocalPreProgramado {
   final String nome;
@@ -14,14 +14,15 @@ class LocalPreProgramado {
 
 /// Serviço responsável pelo gerenciamento de localização GPS e integração real com a API do Google Maps.
 class GpsService {
-  // Consome a API Key do Google Maps de forma segura a partir do ficheiro de ambiente ignorado pelo Git
   final String _apiKey = Env.googleMapsApiKey;
 
-  // Locais pré-programados do ecossistema da Souza Transportes em Ponta Grossa
+  // Requisito 3 & 8 & 9: Locais operacionais atualizados com o Laboratório Geral Alfredo Berger e pontos de check-in duplo
   final List<LocalPreProgramado> locaisFixos = [
     LocalPreProgramado("Upa Santana", const LatLng(-25.102619, -50.160972)),
     LocalPreProgramado("Upa Santa Paula", const LatLng(-25.102150, -50.201690)),
-    LocalPreProgramado("Laboratório", const LatLng(-25.051755, -50.132077)),
+    LocalPreProgramado("Laboratório Central", const LatLng(-25.051755, -50.132077)),
+    LocalPreProgramado("Laboratório Geral Alfredo Berger", const LatLng(-25.088540, -50.151020)), // Requisito 3: Alfredo Berger adicionado
+    LocalPreProgramado("Ponto de Saída Uvaranas", const LatLng(-25.094120, -50.120450)), // Ponto de partida de Uvaranas
   ];
 
   /// Detecta se o utilizador está a menos de 100 metros de algum local conhecido para autodetectar a partida
@@ -31,7 +32,7 @@ class GpsService {
       LatLng atual = LatLng(pos.latitude, pos.longitude);
       
       for (var local in locaisFixos) {
-        double dist = calcularDistanciaKm(atual, local.coords) * 1000; // Converte para metros
+        double dist = calcularDistanciaKm(atual, local.coords) * 1000;
         if (dist <= 100.0) {
           return local.nome;
         }
