@@ -1,8 +1,10 @@
+import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'dart:math';
+import '../config/env.dart';
 
 class LocalPreProgramado {
   final String nome;
@@ -10,95 +12,150 @@ class LocalPreProgramado {
   LocalPreProgramado(this.nome, this.coords);
 }
 
+/// Serviço responsável pelo gerenciamento de localização GPS e integração real com a API do Google Maps.
 class GpsService {
-  final String _apiKey = "AIzaSyA8wdqUKJLIt4FutB0Q6O0YY-lPRg5rY_0";
+  final String _apiKey = Env.googleMapsApiKey;
 
-  // Locais pré-programados em Ponta Grossa
+  // Requisito 3 & 8 & 9: Locais operacionais atualizados com o Laboratório Geral Alfredo Berger e pontos de check-in duplo
   final List<LocalPreProgramado> locaisFixos = [
-    LocalPreProgramado("Upa Santana", const LatLng(-25.0935, -50.1588)),
-    LocalPreProgramado("Upa Santa Paula", const LatLng(-25.1322, -50.1812)),
-    LocalPreProgramado("Laboratório", const LatLng(-25.0945, -50.1633)),
+    LocalPreProgramado("Upa Santana", const LatLng(-25.102619, -50.160972)),
+    LocalPreProgramado("Upa Santa Paula", const LatLng(-25.102150, -50.201690)),
+    LocalPreProgramado("Laboratório Central", const LatLng(-25.051755, -50.132077)),
+    LocalPreProgramado("Laboratório Geral Alfredo Berger", const LatLng(-25.088540, -50.151020)), // Requisito 3: Alfredo Berger adicionado
+    LocalPreProgramado("Ponto de Saída Uvaranas", const LatLng(-25.094120, -50.120450)), // Ponto de partida de Uvaranas
   ];
 
-  /// Detecta se o usuário está a 30m de algum local conhecido
+  /// Detecta se o utilizador está a menos de 100 metros de algum local conhecido para autodetectar a partida
   Future<String?> detectarLocalProximo() async {
     try {
       Position pos = await determinarPosicao();
       LatLng atual = LatLng(pos.latitude, pos.longitude);
       
       for (var local in locaisFixos) {
-        if (verificarProximidadeDestino(atual, local.coords, 30.0)) {
+        double dist = calcularDistanciaKm(atual, local.coords) * 1000;
+        if (dist <= 100.0) {
           return local.nome;
         }
       }
     } catch (e) {
-      return null;
+      debugPrint("Erro ao detectar local mais próximo por GPS: $e");
     }
     return null;
   }
 
+  /// Solicita permissão e retorna a coordenada física atual com precisão elevada
   Future<Position> determinarPosicao() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) return Future.error('GPS desativado.');
-    LocationPermission permission = await Geolocator.checkPermission();
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      throw Exception('Os serviços de localização estão desativados.');
+    }
+
+    permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) return Future.error('Permissão negada.');
+      if (permission == LocationPermission.denied) {
+        throw Exception('As permissões de localização foram negadas.');
+      }
     }
-    return await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+    
+    if (permission == LocationPermission.deniedForever) {
+      throw Exception('As permissões de localização estão permanentemente negadas.');
+    } 
+
+    return await Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high,
+    );
   }
 
-  bool verificarProximidadeDestino(LatLng atual, LatLng destino, double raioMetros) {
-    double dist = calcularDistanciaKm(atual, destino) * 1000;
-    return dist <= raioMetros;
-  }
-
+  /// Calcula a distância Haversine trigonométrica em quilómetros entre duas coordenadas LatLng
   double calcularDistanciaKm(LatLng p1, LatLng p2) {
-    var p = 0.017453292519943295;
-    var a = 0.5 - cos((p2.latitude - p1.latitude) * p) / 2 + cos(p1.latitude * p) * cos(p2.latitude * p) * (1 - cos((p2.longitude - p1.longitude) * p)) / 2;
-    return 12742 * asin(sqrt(a));
+    var lat1 = p1.latitude * pi / 180;
+    var lon1 = p1.longitude * pi / 180;
+    var lat2 = p2.latitude * pi / 180;
+    var lon2 = p2.longitude * pi / 180;
+
+    var dlat = lat2 - lat1;
+    var dlon = lon2 - lon1;
+
+    var a = sin(dlat / 2) * sin(dlat / 2) +
+            cos(lat1) * cos(lat2) *
+            sin(dlon / 2) * sin(dlon / 2);
+    var c = 2 * atan2(sqrt(a), sqrt(1 - a));
+
+    return 6371 * c; // Retorna a distância física em Km
   }
 
+  /// Consulta a API real do Google Directions para buscar metadados de tráfego, distância e polyline
   Future<Map<String, dynamic>> buscarInformacoesRota(LatLng origem, LatLng destino) async {
-    final url = "https://maps.googleapis.com/maps/api/directions/json?origin=${origem.latitude},${origem.longitude}&destination=${destino.latitude},${destino.longitude}&key=$_apiKey&mode=driving";
+    final String url = 
+        'https://maps.googleapis.com/maps/api/directions/json?origin=${origem.latitude},${origem.longitude}&destination=${destino.latitude},${destino.longitude}&key=$_apiKey';
+
     final response = await http.get(Uri.parse(url));
     if (response.statusCode == 200) {
       final data = json.decode(response.body);
       if (data['status'] == 'OK') {
         final leg = data['routes'][0]['legs'][0];
         return {
-          'distancia_valor': leg['distance']['value'],
-          'tempo_valor': leg['duration']['value'],
+          'distancia_valor': leg['distance']['value'], // Em metros
+          'tempo_valor': leg['duration']['value'],     // Em segundos
           'polyline': data['routes'][0]['overview_polyline']['points'],
         };
       }
     }
-    throw Exception("Erro na rota");
+    throw Exception("Erro na rota via Google API: ${response.statusCode}");
   }
 
+  /// Busca e decodifica os pontos geográficos para desenhar as polylines reais no mapa
   Future<List<LatLng>> buscarRotaReal(LatLng origem, LatLng destino) async {
     try {
       final info = await buscarInformacoesRota(origem, destino);
       return _decodificarPolyline(info['polyline']);
-    } catch (e) { return [origem, destino]; }
+    } catch (e) { 
+      debugPrint("Usando fallback de reta simples devido a erro de API: $e");
+      return [origem, destino]; 
+    }
   }
 
+  /// Escuta alterações de posicionamento do motoboy a cada 5 metros de deslocamento
   Stream<Position> monitorarMovimento() {
-    return Geolocator.getPositionStream(locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 5));
+    return Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high, 
+        distanceFilter: 5,
+      ),
+    );
   }
 
+  /// Algoritmo de decodificação de polylines compactadas do Google Maps Directions
   List<LatLng> _decodificarPolyline(String encoded) {
     List<LatLng> poly = [];
     int index = 0, len = encoded.length;
     int lat = 0, lng = 0;
     while (index < len) {
       int b, shift = 0, result = 0;
-      do { b = encoded.codeUnitAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
-      lat += ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
-      shift = 0; result = 0;
-      do { b = encoded.codeUnitAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
-      lng += ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
-      poly.add(LatLng(lat / 1E5, lng / 1E5));
+      do { 
+        b = encoded.codeUnitAt(index++) - 63; 
+        result |= (b & 0x1f) << shift; 
+        shift += 5; 
+      } while (b >= 0x20);
+      int dlat = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
+      lat += dlat;
+
+      shift = 0;
+      result = 0;
+      do { 
+        b = encoded.codeUnitAt(index++) - 63; 
+        result |= (b & 0x1f) << shift; 
+        shift += 5; 
+      } while (b >= 0x20);
+      int dlng = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
+      lng += dlng;
+
+      LatLng p = LatLng((lat / 1E5).toDouble(), (lng / 1E5).toDouble());
+      poly.add(p);
     }
     return poly;
   }
