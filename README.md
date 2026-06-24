@@ -1,5 +1,7 @@
 Souza Transportes - Logística Inteligente
 
+## Parte 3 do projeto no fim do arquivo 
+
 Este repositório contém a entrega da Parte 2 da disciplina de Desenvolvimento Móvel. O projeto evoluiu de um protótipo local (Parte 1) para um ecossistema completo com banco de dados na nuvem, rastreamento físico real por mapas, gestão de faturamento e governança de dados.
 
 🎯 Objetivo do Projeto
@@ -209,3 +211,45 @@ Instale e Execute:
 Volte para a tela do instalador e clique em Instalar.
 
 Quando o processo concluir, abra o aplicativo e faça o login usando as credenciais cadastradas no seu painel do Supabase!
+
+O aplicativo resolve gargalos operacionais críticos:
+* **Fim do Registro Físico (Papel):** Elimina erros de preenchimento manual e custos com redigitação de guias de coleta.
+* **Auditoria de Deslocamento Multi-Ponto:** Garante que o condutor de fato realizou a rota através de monitoramento de GPS em tempo real e travas geográficas em pontos intermediários e finais.
+* **Mapeamento de Performance Operacional:** Permite ao gestor diferenciar o tempo útil de trânsito do tempo ocioso do motorista aguardando a liberação de insumos biológicos nas UPAs.
+* **Transparência e Automação Financeira:** Introduz um sistema complexo de tarifas dinâmicas, calculando com precisão o repasse de valores com base em dados auditados por sensores.
+
+---
+
+ Requisitos Implementados Part 3
+
+### 1. Controle de Jornada e Gestão de Sessão (TrabalhoCheckScreen)
+* **Abertura de Turno Mandatória:** O motorista não pode iniciar coletas sem antes abrir sua jornada de trabalho na tela `TrabalhoCheckScreen`.
+* **Persistência de Turno:** O aplicativo recolhe informações de horário, turno (Dia/Noite) e equipe, persistindo esses dados localmente via `SharedPreferences`. Se o aplicativo ou o aparelho forem desligados, a sessão da jornada permanece blindada e ativa.
+
+### 2. Sincronização Avançada e Nuvem (Supabase Cloud)
+* **Arquitetura Offline-First Resiliente:** Se o sinal 4G falhar nas estradas, o gerenciador de estado (`LogProvider`) retém a corrida localmente, marcando o registro com o status `sincronizado = false` (exibindo visualmente uma nuvem cinza no histórico).
+* **Sincronização em Lote (Batch Request):** O histórico do motorista disponibiliza um botão reativo "ENVIAR" que, quando acionado com rede disponível, dispara uma requisição em bloco para limpar a fila local e subir os registros pendentes.
+* **Modelagem de Dados Expandida:** A tabela `corridas` no Postgres do Supabase foi atualizada com novas colunas estruturais:
+    * `id_amostras` (Lista/String com os IDs capturados por scanner).
+    * `equipe_linha` (Identificador do turno de trabalho do condutor).
+    * `hora_checkin_intermediario` (Timestamp do ponto de parada obrigatório).
+    * `tempo_parado_minutos` (Tempo cronometrado em espera no destino).
+
+### 3. Validação por QR Code Real e Câmera (`MobileScanner`)
+* **Leitura de Insumos Integrada:** Utilização da câmera física do dispositivo através do pacote `mobile_scanner` para capturar os IDs das caixas de amostras biológicas.
+* **Tratamento de Payload:** O app intercepta a String codificada no QR Code, valida o formato em tempo real para evitar dados corrompidos e anexa o ID automaticamente ao corpo (payload) da requisição de rede que será enviada à API.
+
+### 4. Regras Complexas de Negócio e Tarifação Dinâmica
+O sistema financeiro calcula os ganhos do condutor de forma reativa na interface de acordo com a rota e regras contratuais:
+* **Rota Uvaranas (Piso Mínimo Garantido):** Garante ao condutor um faturamento mínimo equivalente a **10 corridas diárias por turno**. Caso o motorista realize menos entregas, o `LogProvider` calcula e injeta a compensação financeira automaticamente no fechamento do relatório.
+* **Rota Upa Santa Paula:** Tarifa de valor cheio fixada estruturalmente.
+* **Viagem Vazia (Sem Coleta):** Caso o motorista vá até uma unidade e não haja insumos para coleta, ele reporta a ocorrência. O app gera uma tarifa de deslocamento reduzida automaticamente e exibe um pop-up de aviso de tempo de espera configurado reativamente pelo banco de dados.
+
+### 5. Geofencing Multi-Ponto e Algoritmo de Haversine
+* **Check-In Duplo por Proximidade:** O monitoramento geográfico por GPS (`Geolocator`) foi expandido para validar dois pontos distintos: a **UPA Santana (Parada Intermediária Compulsória)** e o destino final da rota.
+* **Cálculo Físico de Distância:** O app calcula a distância euclidiana real sobre a superfície terrestre usando a Fórmula de Haversine. O botão de encerramento da corrida permanece bloqueado por uma trava de software até que o chip de GPS detecte que o veículo está a **menos de 50 metros** das coordenadas exatas configuradas.
+* *(Nota de Homologação: Para fins de demonstração acadêmica em sala de aula, mantém-se o botão oculto "Forçar Chegada" para simular o comportamento dos sensores).*
+
+### 6. Painel Administrativo ("Painel do Patrão") Reativo
+* **Sincronização Remota de Configurações:** O painel administrativo altera os valores das tarifas locais em tempo real direto nas telas dos motoristas, sem necessidade de atualizar o aplicativo.
+* **Auditoria Analítica Expandida:** Grid de KPIs reestruturado para cruzar o faturamento global, o tempo total de frota rodada e a minutagem ociosa acumulada de todos os condutores ativos no turno.
